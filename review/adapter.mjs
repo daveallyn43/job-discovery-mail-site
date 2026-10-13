@@ -55,7 +55,9 @@ export class CloudApi {
       return {data, headers: r.headers};
     } catch (e) {
       if (e instanceof ApiError) throw e;
-      throw new ApiError(503, 'Connection failed or timed out. Your draft is retained; retry safely.');
+      const failure = new ApiError(503, controller.signal.aborted ? 'App timeout: no completed response within 20 seconds.' : 'Browser/network rejection: the request failed before the app timeout.');
+      failure.kind = controller.signal.aborted ? 'app_timeout' : 'network_rejection';
+      throw failure;
     } finally { clearTimeout(timer); }
   }
   async sendCode(email) {
@@ -65,7 +67,7 @@ export class CloudApi {
     this.sendingCode = true; this.lastCode = this.clock(); this.lastSendError = null;
     try { await this.http('/auth/v1/otp?redirect_to=' + encodeURIComponent('https://daveallynlab.com/review/'), {body: {email, create_user: false}}); return {sent: true}; }
     catch (e) {
-      this.lastSendError = e.status === 503 ? new ApiError(503, 'The browser could not reach sign-in or the request timed out. Email delivery is unknown. Check your inbox first. If it keeps failing, report this connection error; repeated clicks will not fix it.') : e;
+      this.lastSendError = e.status === 503 ? new ApiError(503, e.message + ' Email delivery is unknown. Check your inbox first; repeated clicks will not fix it.') : e;
       throw this.lastSendError;
     } finally { this.sendingCode = false; }
   }
@@ -165,6 +167,11 @@ export class CloudApi {
   }
   async request(path, body) {
     if (path === 'config') return {demo: false};
+    if (path === 'check-connection') {
+      const {data} = await this.http('/auth/v1/settings');
+      if (!data || data.external?.email !== true) throw new ApiError(502, 'Auth responded, but email sign-in availability could not be verified.');
+      return {ok:true};
+    }
     if (path === 'send-code') return this.sendCode(body.email);
     if (path === 'verify-code') return this.verify(body.email, body.code);
     if (path === 'jobs') return this.list();
