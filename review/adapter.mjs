@@ -11,7 +11,7 @@ const columns = {
 const states = new Set(['interested', 'maybe', 'not_interested', 'applied']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class CloudApi {
-  constructor(config, fetcher = globalThis.fetch, clock = Date.now) {
+  constructor(config, fetcher = (...args) => globalThis.fetch(...args), clock = Date.now) {
     if (config.url !== project || !/^sb_publishable_[A-Za-z0-9_-]+$/.test(config.key || '')) {
       throw new ApiError(503, 'Cloud access is not configured. No request was sent.');
     }
@@ -33,11 +33,16 @@ export class CloudApi {
       const headers = {apikey: this.config.key, 'Content-Type': 'application/json'};
       if (token) headers.Authorization = 'Bearer ' + token;
       if (prefer) headers.Prefer = prefer;
-      const r = await this.fetcher(project + path, {
+      let pending;
+      try { pending = this.fetcher(project + path, {
         method: body === undefined ? 'GET' : 'POST', headers,
         body: body === undefined ? undefined : JSON.stringify(body),
         cache: 'no-store', credentials: 'omit', redirect: 'error', signal: controller.signal,
-      });
+      }); } catch {
+        const setupError = new ApiError(500, 'Browser request setup failed before a request could be started.');
+        setupError.kind = 'request_setup'; throw setupError;
+      }
+      const r = await pending;
       if (!r.ok) {
         if (r.status === 401 || r.status === 403) {
           this.clear(); throw new ApiError(r.status, 'Sign-in expired or this account has no access. Sign in with the approved account.');
@@ -55,8 +60,8 @@ export class CloudApi {
       return {data, headers: r.headers};
     } catch (e) {
       if (e instanceof ApiError) throw e;
-      const failure = new ApiError(503, controller.signal.aborted ? 'App timeout: no completed response within 20 seconds.' : 'Browser/network rejection: the request failed before the app timeout.');
-      failure.kind = controller.signal.aborted ? 'app_timeout' : 'network_rejection';
+      const failure = new ApiError(503, controller.signal.aborted ? 'App timeout: no completed response within 20 seconds.' : 'Request failed before the app timeout. This alone does not distinguish network, browser policy, or response-processing errors.');
+      failure.kind = controller.signal.aborted ? 'app_timeout' : 'request_failure';
       throw failure;
     } finally { clearTimeout(timer); }
   }
