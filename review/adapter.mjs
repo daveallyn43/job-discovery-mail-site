@@ -17,7 +17,7 @@ export class CloudApi {
     }
     this.config = config; this.fetcher = fetcher; this.clock = clock;
     this.session = null; this.generation = 0; this.sendingCode = false;
-    this.lastCode = -Infinity; this.verifying = false; this.inflight = new Map();
+    this.lastCode = -Infinity; this.lastSendError = null; this.verifying = false; this.inflight = new Map();
   }
   clear() { this.session = null; this.generation++; }
   token() {
@@ -43,7 +43,7 @@ export class CloudApi {
           this.clear(); throw new ApiError(r.status, 'Sign-in expired or this account has no access. Sign in with the approved account.');
         }
         if (r.status === 400 && path === '/auth/v1/verify') throw new ApiError(400, 'The code is invalid or expired. Request a new code.');
-        if (r.status === 429) throw new ApiError(429, 'Too many requests. Wait a minute and try again.');
+        if (r.status === 429) throw new ApiError(429, 'Supabase has limited requests. Delivery is not confirmed. Check your inbox; do not repeatedly request links. The service limit may last longer than one minute.');
         if (r.status === 409) throw new ApiError(409, 'This save already exists. Checking its result is safe.');
         throw new ApiError(r.status, 'The service could not complete the request. Your draft is retained.');
       }
@@ -60,10 +60,14 @@ export class CloudApi {
   }
   async sendCode(email) {
     if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ApiError(400, 'Enter your approved email address.');
-    if (this.sendingCode || this.clock() - this.lastCode < 60000) throw new ApiError(429, 'Wait one minute before requesting another code.');
-    this.sendingCode = true; this.lastCode = this.clock();
+    if (this.sendingCode) throw new ApiError(429, 'A sign-in request is already in progress.');
+    if (this.clock() - this.lastCode < 60000) throw this.lastSendError || new ApiError(429, 'A link was requested recently. Check your inbox before requesting another.');
+    this.sendingCode = true; this.lastCode = this.clock(); this.lastSendError = null;
     try { await this.http('/auth/v1/otp?redirect_to=' + encodeURIComponent('https://daveallynlab.com/review/'), {body: {email, create_user: false}}); return {sent: true}; }
-    finally { this.sendingCode = false; }
+    catch (e) {
+      this.lastSendError = e.status === 503 ? new ApiError(503, 'The browser could not reach sign-in or the request timed out. Email delivery is unknown. Check your inbox first. If it keeps failing, report this connection error; repeated clicks will not fix it.') : e;
+      throw this.lastSendError;
+    } finally { this.sendingCode = false; }
   }
   async verify(email, code) {
     if (this.verifying) throw new ApiError(429, 'Sign-in is already in progress.');
