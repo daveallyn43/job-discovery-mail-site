@@ -1,4 +1,4 @@
-/* Private data is fetched only at runtime. No tokens or jobs use browser storage. */
+/* Private data is fetched only at runtime. Sessions use browser storage only with explicit opt-in; jobs never do. */
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
@@ -11,15 +11,89 @@ const columns = {
 const states = new Set(['interested', 'maybe', 'not_interested', 'applied']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class CloudApi {
-  constructor(config, fetcher = (...args) => globalThis.fetch(...args), clock = Date.now) {
+  constructor(config, fetcher = (...args) => globalThis.fetch(...args), clock = Date.now, environment = {}) {
     if (config.url !== project || !/^sb_publishable_[A-Za-z0-9_-]+$/.test(config.key || '')) {
       throw new ApiError(503, 'Cloud access is not configured. No request was sent.');
     }
     this.config = config; this.fetcher = fetcher; this.clock = clock;
+    this.storage = environment.storage || (() => globalThis.localStorage);
+    this.locks = environment.locks || globalThis.navigator?.locks;
+    this.remember = false; this.refreshing = null;
+    this.sessionKey = 'review-desk.session.v1'; this.choiceKey = 'review-desk.remember.v1';
     this.session = null; this.generation = 0; this.sendingCode = false;
     this.lastCode = -Infinity; this.lastSendError = null; this.verifying = false; this.inflight = new Map();
   }
-  clear() { this.session = null; this.generation++; }
+  clear() {
+    const wasRemembered = this.remember;
+    this.session = null; this.remember = false; this.generation++;
+    try { this.storage()?.removeItem(this.sessionKey); this.storage()?.removeItem(this.choiceKey); }
+    catch { if (wasRemembered) throw new ApiError(503, 'Browser storage could not be cleared. Clear this site’s browser data before leaving a shared device.'); }
+  }
+  setRemember(value) {
+    if (!value) { this.clear(); return; }
+    if (!this.locks) throw new ApiError(503, 'This browser cannot safely remember sessions across tabs. Leave Remember this device unchecked.');
+    try { this.storage().setItem(this.choiceKey, 'yes'); }
+    catch { throw new ApiError(503, 'Browser storage is unavailable. Leave Remember this device unchecked.'); }
+    this.remember = true;
+  }
+  readSaved() {
+    try {
+      if (this.storage()?.getItem(this.choiceKey) !== 'yes') return null;
+      const s = JSON.parse(this.storage().getItem(this.sessionKey) || 'null');
+      if (!s) return null;
+      if (typeof s.token !== 'string' || !s.token || typeof s.refresh !== 'string' || !s.refresh || !uuid.test(s.user || '') || !Number.isFinite(s.expires)) throw Error();
+      return s;
+    } catch { this.clear(); throw new ApiError(401, 'Saved sign-in is unavailable. Sign in again.'); }
+  }
+  persist(session) {
+    if (this.remember) {
+      if (!session.refresh) throw new ApiError(401, 'This link cannot renew a session. Request a new sign-in link.');
+      try { this.storage().setItem(this.sessionKey, JSON.stringify(session)); }
+      catch { this.clear(); throw new ApiError(503, 'The browser could not save sign-in. Try again with Remember this device unchecked.'); }
+    }
+    this.session = session;
+  }
+  async restore(renew = true) {
+    try { this.remember = this.storage()?.getItem(this.choiceKey) === 'yes'; } catch { return; }
+    if (!this.remember) return;
+    if (!this.locks) { this.clear(); return; }
+    if (!renew) return;
+    this.session = this.readSaved();
+    if (this.session) await this.ensureSession();
+  }
+  async ensureSession() {
+    if (!this.remember) return this.token();
+    if (this.refreshing) return this.refreshing;
+    this.refreshing = this.locks.request(this.sessionKey, async () => {
+      const saved = this.readSaved();
+      if (!saved) { this.clear(); return this.token(); }
+      this.session = saved;
+      if (saved.expires > this.clock() + 60000) return saved.token;
+      const generation = this.generation;
+      try {
+        const {data} = await this.http('/auth/v1/token?grant_type=refresh_token', {body: {refresh_token: saved.refresh}});
+        if (!data || typeof data.access_token !== 'string' || !data.access_token || typeof data.refresh_token !== 'string' || !data.refresh_token || !Number.isFinite(data.expires_in) || data.expires_in <= 0 || data.user?.id !== saved.user) {
+          this.clear(); throw new ApiError(401, 'Session renewal was invalid. Sign in again.');
+        }
+        if (generation !== this.generation || this.readSaved()?.refresh !== saved.refresh) throw new ApiError(401, 'Session changed. Sign in again.');
+        this.persist({token: data.access_token, refresh: data.refresh_token, user: saved.user, expires: this.clock() + Math.min(data.expires_in, 3600) * 1000});
+        return this.session.token;
+      } catch (e) {
+        if ([400,401,403].includes(e.status)) this.clear();
+        throw e;
+      }
+    }).finally(() => { this.refreshing = null; });
+    return this.refreshing;
+  }
+  async logout() {
+    const run = async () => {
+      const token = (this.remember ? this.readSaved()?.token : null) || this.session?.token;
+      this.clear();
+      if (token) await this.http('/auth/v1/logout?scope=local', {token, body: {}});
+      return {ok: true};
+    };
+    return this.remember && this.locks ? this.locks.request(this.sessionKey, run) : run();
+  }
   token() {
     if (!this.session || this.session.expires <= this.clock()) {
       this.clear(); throw new ApiError(401, 'Your session has ended. Sign in again; your draft is retained.');
@@ -86,8 +160,8 @@ export class CloudApi {
       const {data: user} = await this.http('/auth/v1/user', {token: data.access_token});
       if (!user || !uuid.test(user.id || '')) throw new ApiError(401, 'Account verification failed.');
       if (generation !== this.generation) throw new ApiError(401, 'Sign-in was cancelled.');
-      // Discard refresh token. Supabase RLS, never this client, authorizes the UID.
-      this.session = {token: data.access_token, user: user.id, expires: this.clock() + Math.min(data.expires_in, 3600) * 1000};
+      // Supabase RLS, never this client, authorizes the UID.
+      this.persist({token: data.access_token, user: user.id, expires: this.clock() + Math.min(data.expires_in, 3600) * 1000, ...(this.remember ? {refresh: data.refresh_token} : {})});
       return {ok: true};
     } finally { this.verifying = false; }
   }
@@ -108,7 +182,7 @@ export class CloudApi {
     const {data: user} = await this.http('/auth/v1/user', {token});
     if (!user || !uuid.test(user.id || '') || !user.email_confirmed_at || generation !== this.generation) throw new ApiError(401, 'Account verification failed. Request a new link.');
     // RLS binds the real owner UUID; no client-side email check grants access.
-    this.session = {token, user: user.id, expires: this.clock() + Math.min(remaining, 3600)*1000};
+    this.persist({token, user: user.id, expires: this.clock() + Math.min(remaining, 3600)*1000, ...(this.remember ? {refresh: params.get('refresh_token')} : {})});
     return {ok: true};
   }
   async rows(table, token) {
@@ -134,7 +208,7 @@ export class CloudApi {
     throw new ApiError(503, 'Result limit reached. No partial queue was shown.');
   }
   async list() {
-    const token = this.token(), generation = this.generation;
+    const token = await this.ensureSession(), generation = this.generation;
     const {data: user} = await this.http('/auth/v1/user', {token});
     if (user?.id !== this.session?.user) { this.clear(); throw new ApiError(401, 'Account changed. Sign in again.'); }
     const jobs = await this.rows('jobs', token);
@@ -156,7 +230,7 @@ export class CloudApi {
     this.inflight.set(payload.id, {serialized, promise}); return promise;
   }
   async saveOnce(body) {
-    const token = this.token();
+    const token = await this.ensureSession();
     const query = new URLSearchParams({id: 'eq.' + body.id, select: 'id,job_id,review_state,comment'});
     const check = async () => {
       const {data} = await this.http('/rest/v1/review_feedback?' + query, {token});
@@ -181,11 +255,7 @@ export class CloudApi {
     if (path === 'verify-code') return this.verify(body.email, body.code);
     if (path === 'jobs') return this.list();
     if (path === 'feedback') return this.save(body);
-    if (path === 'logout') {
-      const token = this.session?.token; this.clear();
-      if (token) await this.http('/auth/v1/logout?scope=local', {token, body: {}});
-      return {ok: true};
-    }
+    if (path === 'logout') return this.logout();
     throw new ApiError(404, 'Unknown action.');
   }
 }
