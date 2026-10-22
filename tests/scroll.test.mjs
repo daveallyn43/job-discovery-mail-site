@@ -9,6 +9,8 @@ class Element {
   constructor(tag='div') { this.tag=tag; this.children=[]; this.dataset={}; this.scrollTop=0; this.value=''; this.attributes={}; }
   append(...items) { this.children.push(...items); }
   replaceChildren(...items) { this.children=items; this.scrollTop=0; }
+  querySelector() { return this.children.find(x=>x.attributes?.['aria-current']==='true'); }
+  focus() { this.focused=true; }
   setAttribute(k,v) { this.attributes[k]=v; }
 }
 function fixture() {
@@ -34,6 +36,7 @@ test('selecting a distant job retains list position and opens details at top',()
   assert.equal(nodes.detail.dataset.jobId,'250');
   assert.equal(run('selected'),'250');
   assert.equal(nodes.jobs.children[250].attributes['aria-current'],'true');
+  assert.equal(nodes.jobs.children[250].focused,true);
 });
 test('rerendering same selection keeps detail position and unsaved draft',()=>{
   const {nodes,run}=fixture();
