@@ -26,3 +26,13 @@ Desktop uses two independently scrolling panes; below 801px the existing stacked
 QA used a localhost-only wrapper with fixed-size frames and a synthetic read-only API (POST rejected). The temporary server omitted only the top-level framing guard from the served test copy so viewport frames could exercise the real renderer/CSS; the repository's production guard is unchanged. This verifies responsive Chromium layout, not physical iOS Safari behavior. The browser check uncovered lost focus when rebuilding selected buttons; selection now restores focus with preventScroll and the rendering test checks it.
 
 The user confirmed authenticated refresh keeps them signed in on October 22. This is user-verified reload persistence, not an expiry or logout test.
+
+## Company directory preparation (October 22)
+
+`companies.test.mjs` and `company-panel.test.mjs` add 12 synthetic checks: unavailable versus successfully empty feeds, exact linked-job filtering with unmatched email leads retained in All companies, bounded composite-key pagination, malformed/orphan data, missing migration/403 independent from job access, 401 invalidation, request validation and no enrollment mutation, concurrent UUID conflicts, immutable double submits, lost-response retries, and panel state after refresh failures. The full suite contains 56 tests.
+
+The optional directory reads `companies`, `company_jobs`, and `company_requests` separately from the existing job loader. A company filter intersects existing job filters and never links jobs by name. Request inserts contain only client UUID, company name, and HTTPS source URL; created_at is server generated. Recording a request cannot enable collection. Request fields remain available for retry after an uncertain response, using the same UUID and payload.
+
+Requires the separately reviewed company-registry migration: owner-only SELECT on all three surfaces and INSERT(id,name,source_url) on company_requests. No permissions are added by this site change. No company records are fabricated when the migration is absent. Nilo remains enabled but visibly unavailable with unknown openings; a successful empty feed is explicitly different.
+
+New company-panel visual browser QA and live RLS integration verification remain pending. These tests use a minimal DOM and mocked HTTP only; they make no live requests, save no feedback, and do not establish rendered responsive geometry. The existing tested Jobs pane layout is retained.

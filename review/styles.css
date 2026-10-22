@@ -14,3 +14,5 @@ label.remember{flex-direction:row;align-items:center}label.remember input{margin
 @media (max-width:800px) {
   #jobs { max-height:min(330px,40dvh); padding:4px; }
 }
+
+.viewNav{display:flex;gap:10px;margin-bottom:20px}.viewNav button[aria-pressed=true]{background:#195d43;color:#fff}.companyGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:18px}.companyCard h3{margin-top:0}.companyCard p{white-space:pre-line}.companyRequest{margin-top:24px}.companyRequest form{display:flex;gap:12px;align-items:end;flex-wrap:wrap}.companyRequest label{flex:1;min-width:min(100%,220px)}.companyRequest li{margin:14px 0;overflow-wrap:anywhere}#companyFilterStatus:focus{outline:3px solid #dc9b26;outline-offset:2px}

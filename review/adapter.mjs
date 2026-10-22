@@ -1,3 +1,4 @@
+import {validateCompany, validateCompanyRequest} from './companies.mjs?v=20261023-companies1';
 /* Private data is fetched only at runtime. Sessions use browser storage only with explicit opt-in; jobs never do. */
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -7,6 +8,9 @@ const columns = {
   jobs: 'id,title,company,location,work_mode,canonical_url,job_description,jd_status,jd_checked_at,first_seen_at,last_seen_at',
   source_sightings: 'id,job_id,source_kind,source_name,source_url,last_seen_at',
   review_feedback: 'id,job_id,review_state,comment,reviewed_at',
+  companies: 'id,name,ats,board,career_url,verification_status,monitoring_enabled,verified_at,provenance_url,last_checked_at,last_success_at,last_check_status,last_job_count',
+  company_jobs: 'company_id,job_id',
+  company_requests: 'id,name,source_url,created_at',
 };
 const states = new Set(['interested', 'maybe', 'not_interested', 'applied']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -100,7 +104,7 @@ export class CloudApi {
     }
     return this.session.token;
   }
-  async http(path, {body, token, prefer} = {}) {
+  async http(path, {body, token, prefer, optionalCapability=false} = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
     try {
@@ -118,6 +122,7 @@ export class CloudApi {
       }
       const r = await pending;
       if (!r.ok) {
+        if (optionalCapability && [403,404].includes(r.status)) throw new ApiError(r.status, 'Company directory is not available for this account yet. Jobs remain available.');
         if (r.status === 401 || r.status === 403) {
           this.clear(); throw new ApiError(r.status, 'Sign-in expired or this account has no access. Sign in with the approved account.');
         }
@@ -185,11 +190,13 @@ export class CloudApi {
     this.persist({token, user: user.id, expires: this.clock() + Math.min(remaining, 3600)*1000, ...(this.remember ? {refresh: params.get('refresh_token')} : {})});
     return {ok: true};
   }
-  async rows(table, token) {
+  async rows(table, token, {optionalCapability=false} = {}) {
+    if (!columns[table]) throw new ApiError(400, 'Unknown data collection.');
+    const identity=row=>table==='company_jobs' ? (uuid.test(row?.company_id||'') && uuid.test(row?.job_id||'') ? row.company_id+':'+row.job_id : null) : (uuid.test(row?.id||'') ? row.id : null);
     let offset = 0, total = null; const all = [], seen = new Set();
     while (offset < 10000) {
-      const query = new URLSearchParams({select: columns[table], order: 'id.asc', limit: '200', offset: String(offset)});
-      const {data, headers} = await this.http('/rest/v1/' + table + '?' + query, {token, prefer: 'count=exact'});
+      const query = new URLSearchParams({select: columns[table], order: table==='company_jobs'?'company_id.asc,job_id.asc':'id.asc', limit: '200', offset: String(offset)});
+      const {data, headers} = await this.http('/rest/v1/' + table + '?' + query, {token, prefer: 'count=exact', optionalCapability});
       const range = headers.get('content-range') || '';
       const match = range.match(/^(?:\d+-\d+|\*)\/(\d+)$/);
       if (!Array.isArray(data) || !match) throw new ApiError(502, 'Incomplete pagination metadata. No partial queue was shown.');
@@ -198,8 +205,8 @@ export class CloudApi {
       if (total !== null && count !== total) throw new ApiError(409, 'The queue changed while loading. Refresh to try again.');
       total = count;
       for (const row of data) {
-        if (!row || !uuid.test(row.id || '') || seen.has(row.id)) throw new ApiError(502, 'Invalid or repeated result. Refresh to try again.');
-        seen.add(row.id); all.push(row);
+        if (!row || !identity(row) || seen.has(identity(row))) throw new ApiError(502, 'Invalid or repeated result. Refresh to try again.');
+        seen.add(identity(row)); all.push(row);
       }
       offset += data.length;
       if (offset === total) return all;
@@ -220,6 +227,40 @@ export class CloudApi {
     feedback.sort((a, b) => String(b.reviewed_at).localeCompare(String(a.reviewed_at)) || b.id.localeCompare(a.id));
     for (const r of feedback) if (!latest.has(r.job_id)) latest.set(r.job_id, r);
     return {jobs: jobs.map(j => ({...j, sources: sources.get(j.id) || [], review: latest.get(j.id) || null})), demo: false};
+  }
+  async companies() {
+    const token=await this.ensureSession(),generation=this.generation;
+    const companies=await this.rows('companies',token,{optionalCapability:true});
+    const links=await this.rows('company_jobs',token,{optionalCapability:true});
+    const requests=await this.rows('company_requests',token,{optionalCapability:true});
+    if(companies.some(c=>!validateCompany(c))) throw new ApiError(502,'Invalid company directory response. No partial directory was shown.');
+    const ids=new Set(companies.map(c=>c.id));
+    if(links.some(l=>!ids.has(l.company_id))) throw new ApiError(409,'Company directory changed while loading. Refresh to try again.');
+    if(requests.some(r=>!validateCompanyRequest({id:r.id,name:r.name,source_url:r.source_url}) || !Number.isFinite(Date.parse(r.created_at)))) throw new ApiError(502,'Invalid company request response.');
+    if(generation!==this.generation || !this.session) throw new ApiError(401,'Session changed. Sign in again.');
+    return {companies,links,requests};
+  }
+  requestCompany(body) {
+    if(!validateCompanyRequest(body)) return Promise.reject(new ApiError(400,'Enter a company name and an HTTPS source link without credentials or a fragment.'));
+    const payload={...body},key='company:'+body.id,serialized=JSON.stringify(payload),existing=this.inflight.get(key);
+    if(existing) return existing.serialized===serialized?existing.promise:Promise.reject(new ApiError(409,'A different company request is already being saved.'));
+    const promise=this.requestCompanyOnce(payload).finally(()=>this.inflight.delete(key));
+    this.inflight.set(key,{serialized,promise});return promise;
+  }
+  async requestCompanyOnce(body) {
+    const token=await this.ensureSession();
+    const query=new URLSearchParams({id:'eq.'+body.id,select:'id,name,source_url'});
+    const check=async()=>{
+      const {data}=await this.http('/rest/v1/company_requests?'+query,{token,optionalCapability:true});
+      if(!Array.isArray(data) || data.length>1) throw new ApiError(502,'Invalid company request verification.');
+      if(!data.length)return false;
+      if(Object.keys(body).some(k=>data[0][k]!==body[k]))throw new ApiError(409,'Conflicting retry. Existing company request was not changed.');
+      return true;
+    };
+    if(await check())return {saved:true,monitoring_enabled:false};
+    try{await this.http('/rest/v1/company_requests',{token,body,prefer:'return=minimal',optionalCapability:true});}
+    catch(e){if(e.status!==409 || !(await check()))throw e;}
+    return {saved:true,monitoring_enabled:false};
   }
   save(body) {
     const fields = ['id', 'job_id', 'review_state', 'comment'];
@@ -254,6 +295,8 @@ export class CloudApi {
     if (path === 'send-code') return this.sendCode(body.email);
     if (path === 'verify-code') return this.verify(body.email, body.code);
     if (path === 'jobs') return this.list();
+    if (path === 'companies') return this.companies();
+    if (path === 'company-request') return this.requestCompany(body);
     if (path === 'feedback') return this.save(body);
     if (path === 'logout') return this.logout();
     throw new ApiError(404, 'Unknown action.');
