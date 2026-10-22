@@ -42,3 +42,11 @@ test('concurrent request conflict readback succeeds only for identical payload',
 test('double request shares immutable save and rejects changed in-flight content',async()=>{
  let finish;const gate=new Promise(r=>finish=r);const {a,calls}=setup([()=>gate,response(null,204)]),b=payload();const first=a.requestCompany(b);assert.equal(first,a.requestCompany({...b}));await assert.rejects(a.requestCompany({...b,name:'Changed'}),e=>e.status===409);b.name='Mutated';finish(response([]));await first;assert.equal(JSON.parse(calls[1].opts.body).name,'Example');
 });
+
+test('Nilo recovery uses latest success or empty outcome over initial unavailable status',()=>{
+ const c=company();
+ assert.equal(companyStatus(c).label,'Feed unavailable');
+ assert.equal(companyStatus({...c,last_check_status:'success',last_job_count:4}).label,'Successful check · 4 jobs');
+ assert.equal(companyStatus({...c,last_check_status:'empty',last_job_count:0}).label,'Successful check · 0 openings');
+ assert.equal(companyStatus({...c,last_check_status:'failed',last_job_count:null}).label,'Feed unavailable');
+});

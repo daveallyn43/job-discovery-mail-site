@@ -27,7 +27,7 @@ export function validateCompanyRequest(body) {
 }
 export function companyStatus(c) {
   const enrollment=c.monitoring_enabled?'Daily monitoring enabled':'Not monitored';
-  if(c.last_check_status==='failed' || c.verification_status==='unavailable')return {enrollment,label:'Feed unavailable',detail:'Openings unknown. This does not mean zero jobs or that the company is closed.',attention:true};
+  if(c.last_check_status==='failed' || (c.last_check_status===null && c.verification_status==='unavailable'))return {enrollment,label:'Feed unavailable',detail:'Openings unknown. This does not mean zero jobs or that the company is closed.',attention:true};
   if(c.verification_status==='unconfigured' || c.verification_status==='requested')return {enrollment,label:'Source not connected',detail:'Needs an official employer source before monitoring can start.',attention:false};
   if(c.last_check_status==='empty')return {enrollment,label:'Successful check · 0 openings',detail:'The latest successful feed read returned no jobs. Previously collected jobs remain in the queue.',attention:false};
   if(c.last_check_status==='success')return {enrollment,label:`Successful check · ${c.last_job_count??'unknown'} jobs`,detail:'Count from the latest feed read, not a guarantee that every posting is still open.',attention:false};
