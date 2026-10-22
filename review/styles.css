@@ -3,3 +3,14 @@
 input,select,textarea{font-size:16px}
 
 label.remember{flex-direction:row;align-items:center}label.remember input{margin:0}
+
+/* Bound the two desktop panes so a long result list cannot push details away. */
+@media (min-width:801px) {
+  .layout { height:70vh; height:70dvh; min-height:320px; align-items:stretch; }
+  #jobs, #detail { min-height:0; overflow:auto; scrollbar-gutter:stable; }
+  #jobs { align-content:start; padding:4px; }
+}
+#detail:focus-visible { outline:3px solid #dc9b26; outline-offset:2px; }
+@media (max-width:800px) {
+  #jobs { max-height:min(330px,40dvh); padding:4px; }
+}

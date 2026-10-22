@@ -14,3 +14,13 @@ Remember this device stores the access/refresh pair only after explicit opt-in i
 Discovered via shows all recorded discovery channels, not necessarily chronological first source. Official match sightings appear separately as description evidence. No sender is inferred from a LinkedIn destination URL.
 
 Verification limit: synthetic tests and public asset checks do not establish authenticated browser reload behavior. The earlier October 13 refresh check used the in-app Refresh button; it did not test page reload persistence. Live authenticated reload, multi-tab and logout checks remain to be done when supported browser controls are available.
+
+## Scroll layout check (October 22)
+
+`scroll.test.mjs` runs the actual render functions against a minimal synthetic DOM with 360 jobs. It checks list position on distant selection, detail reset for a different job, retained scroll on same-job rerenders, and unsaved draft retention across filtering. It does not calculate CSS layout.
+
+Desktop uses two independently scrolling panes; below 801px the existing stacked layout remains, with a list capped at 330px or 40% of the viewport. The detail pane is keyboard-focusable and named. No auth, source filtering, network or feedback API logic changed.
+
+44 tests pass. Visual desktop/mobile browser QA remains outstanding: isolated in-app browser was unavailable, and the user's active Chrome session was deliberately left alone. Before deployment, verify a long list and description at desktop and mobile widths, keyboard scrolling and focus, filter changes, and unsaved draft retention without saving feedback.
+
+The user confirmed authenticated refresh keeps them signed in on October 22. This is user-verified reload persistence, not an expiry or logout test.
