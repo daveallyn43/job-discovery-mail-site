@@ -1,4 +1,4 @@
-import {companyStatus,researchStatus,linkedJobIds,matchesCompany} from './companies.mjs?v=20261023-research1';
+import {companyStatus,researchStatus,linkedJobIds,matchesCompany} from './companies.mjs?v=20261023-paylocity1';
 
 export function mountCompanies({request,getJobs,onFilterChanged,onAuthError}) {
   const $=id=>document.getElementById(id);

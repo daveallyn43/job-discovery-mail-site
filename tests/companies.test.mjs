@@ -69,3 +69,8 @@ test('cloud directory selects research metadata from the database projection',as
  for(const field of ['research_status','research_checked_at','research_evidence_url']) assert.equal(companies[0][field],stored[field]);
  assert.equal(companyStatus(companies[0]).label,'Feed unavailable');
 });
+
+test('Paylocity uses a verified UUID board and retains empty versus failed health',()=>{
+ const c={...company(),ats:'paylocity',board:'05bfe3d4-079f-4591-acdb-7f20bec8acba',verification_status:'verified',last_check_status:'empty',last_job_count:0};
+ assert.equal(validateCompany(c),true);assert.match(companyStatus(c).label,/0 openings/);assert.equal(validateCompany({...c,board:'guessed-name'}),false);assert.match(companyStatus({...c,last_check_status:'failed',last_job_count:null}).label,/unavailable/);
+});

@@ -14,8 +14,9 @@ export function validateCompany(c) {
   return c && validateResearch(c) && uuid.test(c.id||'') && text(c.name,200) &&
     ['verified','unavailable','unconfigured','requested'].includes(c.verification_status) &&
     typeof c.monitoring_enabled==='boolean' &&
-    (c.ats===null || ['greenhouse','ashby','lever'].includes(c.ats)) &&
+    (c.ats===null || ['greenhouse','ashby','lever','paylocity'].includes(c.ats)) &&
     (c.board===null || (typeof c.board==='string' && /^[A-Za-z0-9_.-]{1,100}$/.test(c.board))) &&
+    (c.ats!=='paylocity' || uuid.test(c.board||'')) &&
     (c.career_url===null || publicUrl(c.career_url)) &&
     (c.provenance_url===null || publicUrl(c.provenance_url)) &&
     ['verified_at','last_checked_at','last_success_at'].every(k=>nullableTime(c[k])) &&
