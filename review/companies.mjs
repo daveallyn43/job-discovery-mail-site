@@ -5,8 +5,13 @@ const nullableTime=v=>v===null || (typeof v==='string' && Number.isFinite(Date.p
 export function publicUrl(value) {
   try { const u=new URL(value);return u.protocol==='https:' && !u.username && !u.password && !u.hash; } catch {return false;}
 }
+const researchStates=['verified','no_careers_found','blocked','unsupported','unresolved','missing_url','feed_unavailable','ambiguous','verification_limited'];
+export function validateResearch(c) {
+  const state=c.research_status??null, checked=c.research_checked_at??null, evidence=c.research_evidence_url??null;
+  return (state===null || researchStates.includes(state)) && nullableTime(checked) && ((state===null)===(checked===null)) && (evidence===null || publicUrl(evidence));
+}
 export function validateCompany(c) {
-  return c && uuid.test(c.id||'') && text(c.name,200) &&
+  return c && validateResearch(c) && uuid.test(c.id||'') && text(c.name,200) &&
     ['verified','unavailable','unconfigured','requested'].includes(c.verification_status) &&
     typeof c.monitoring_enabled==='boolean' &&
     (c.ats===null || ['greenhouse','ashby','lever'].includes(c.ats)) &&
@@ -35,3 +40,21 @@ export function companyStatus(c) {
 }
 export function linkedJobIds(companyId, links) {return new Set(links.filter(l=>l.company_id===companyId).map(l=>l.job_id));}
 export function matchesCompany(jobId, selectedCompany, links) {return !selectedCompany || links.some(l=>l.company_id===selectedCompany && l.job_id===jobId);}
+
+export function researchStatus(c) {
+  const labels={
+    verified:'Official feed verified',
+    no_careers_found:'No careers page found in checked pages',
+    blocked:'Research page inaccessible',
+    unsupported:'Careers platform not supported yet',
+    unresolved:'Careers source needs further verification',
+    missing_url:'Official website still needs identification',
+    feed_unavailable:'Linked feed unavailable during research',
+    ambiguous:'Multiple feed identities need review',
+    verification_limited:'Feed verification reached a safety limit',
+  };
+  if(!c.research_status)return null;
+  return {label:labels[c.research_status],detail:c.research_status==='no_careers_found'
+    ?'This is a dated search observation, not proof that no careers page or jobs exist.'
+    :'Research status is separate from daily monitoring and the latest collection result.'};
+}

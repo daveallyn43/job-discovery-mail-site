@@ -25,3 +25,11 @@ test('request form retains same UUID on uncertain response and does not request 
  const saves=[];let fail=true;const {nodes}=fixture(async(path,body)=>{if(path==='companies')return data();saves.push({...body});if(fail)throw new Error('Lost response');return {saved:true};});nodes.showCompanies.onclick();await flush();nodes.companyName.value='Example';nodes.companySource.value='https://example.com/careers';const event={preventDefault(){}};
  await nodes.companyRequestForm.onsubmit(event);assert.equal(nodes.companyName.value,'Example');fail=false;await nodes.companyRequestForm.onsubmit(event);assert.equal(saves.length,2);assert.deepEqual(saves[0],saves[1]);assert.deepEqual(Object.keys(saves[0]).sort(),['id','name','source_url']);assert.match(nodes.companyRequestStatus.textContent,/Monitoring has not been enabled/);
 });
+test('dated research evidence renders separately from failed monitoring',async()=>{
+ const d=data();Object.assign(d.companies[0],{research_status:'no_careers_found',research_checked_at:'2026-10-23T00:00:00Z',research_evidence_url:'https://example.com/'});
+ const {nodes}=fixture(async()=>d);nodes.showCompanies.onclick();await flush();const card=nodes.companyList.children[0];
+ assert.ok(card.children.some(c=>c.textContent==='Feed unavailable'));
+ const research=card.children.find(c=>c.attributes?.['aria-label']==='Company source research');assert.ok(research);
+ assert.match(research.children[0].textContent,/No careers page found in checked pages/);assert.match(research.children[1].textContent,/not proof/);
+ assert.match(research.children[2].textContent,/Research checked:/);assert.equal(research.children[3].href,'https://example.com/');assert.equal(research.children[3].rel,'noopener noreferrer');
+});

@@ -1,4 +1,4 @@
-import {companyStatus,linkedJobIds,matchesCompany} from './companies.mjs?v=20261023-companies1';
+import {companyStatus,researchStatus,linkedJobIds,matchesCompany} from './companies.mjs?v=20261023-research1';
 
 export function mountCompanies({request,getJobs,onFilterChanged,onAuthError}) {
   const $=id=>document.getElementById(id);
@@ -27,6 +27,13 @@ export function mountCompanies({request,getJobs,onFilterChanged,onAuthError}) {
       const status=companyStatus(c),heading=el('h3',c.name),flag=el('p',status.label);
       flag.className=status.attention?'notice':'meta';card.append(heading,el('p',status.enrollment),flag,el('p',status.detail));
       card.append(el('p',`Last check: ${date(c.last_checked_at)}\nLast successful check: ${date(c.last_success_at)}`));
+      const research=researchStatus(c);
+      if(research) {
+        const block=el('section');block.setAttribute('aria-label','Company source research');
+        block.append(el('p',`Research: ${research.label}`),el('p',research.detail),el('p',`Research checked: ${date(c.research_checked_at)}`));
+        if(c.research_evidence_url)block.append(safeLink('Research evidence ↗',c.research_evidence_url));
+        card.append(block);
+      }
       if(c.career_url)card.append(safeLink('Employer careers page ↗',c.career_url));
       if(c.provenance_url){const p=el('p');p.append(safeLink('Company discovery source ↗',c.provenance_url));card.append(p);}
       const count=[...linkedJobIds(c.id,data.links)].filter(id=>jobs.has(id)).length;

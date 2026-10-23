@@ -1,4 +1,4 @@
-import {validateCompany, validateCompanyRequest} from './companies.mjs?v=20261023-companies1';
+import {validateCompany, validateCompanyRequest} from './companies.mjs?v=20261023-research1';
 /* Private data is fetched only at runtime. Sessions use browser storage only with explicit opt-in; jobs never do. */
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
