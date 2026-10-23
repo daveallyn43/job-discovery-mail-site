@@ -8,7 +8,7 @@ const columns = {
   jobs: 'id,title,company,location,work_mode,canonical_url,job_description,jd_status,jd_checked_at,first_seen_at,last_seen_at',
   source_sightings: 'id,job_id,source_kind,source_name,source_url,last_seen_at',
   review_feedback: 'id,job_id,review_state,comment,reviewed_at',
-  companies: 'id,name,ats,board,career_url,verification_status,monitoring_enabled,verified_at,provenance_url,last_checked_at,last_success_at,last_check_status,last_job_count',
+  companies: 'id,name,ats,board,career_url,verification_status,monitoring_enabled,verified_at,provenance_url,last_checked_at,last_success_at,last_check_status,last_job_count,research_status,research_checked_at,research_evidence_url',
   company_jobs: 'company_id,job_id',
   company_requests: 'id,name,source_url,created_at',
 };

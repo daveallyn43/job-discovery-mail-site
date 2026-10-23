@@ -50,3 +50,22 @@ test('Nilo recovery uses latest success or empty outcome over initial unavailabl
  assert.equal(companyStatus({...c,last_check_status:'empty',last_job_count:0}).label,'Successful check · 0 openings');
  assert.equal(companyStatus({...c,last_check_status:'failed',last_job_count:null}).label,'Feed unavailable');
 });
+
+
+test('cloud directory selects research metadata from the database projection',async()=>{
+ const stored={...company(),research_status:'no_careers_found',research_checked_at:'2026-10-23T00:42:11Z',research_evidence_url:'https://example.com/careers'};
+ const api=new CloudApi({url:'https://glhxpsuuxawejfvolspt.supabase.co',key:'sb_publishable_synthetic'},async(url,opts)=>{
+  assert.equal(opts.method,'GET');
+  const request=new URL(url);
+  if(request.pathname==='/rest/v1/companies'){
+   const selected=request.searchParams.get('select').split(',');
+   return response([Object.fromEntries(selected.map(key=>[key,stored[key]]))],200,'0-0/1');
+  }
+  assert.ok(['/rest/v1/company_jobs','/rest/v1/company_requests'].includes(request.pathname));
+  return response([],200,'*/0');
+ },()=>0);
+ api.session={token:'synthetic',user:id(99),expires:3600000};
+ const {companies}=await api.companies();
+ for(const field of ['research_status','research_checked_at','research_evidence_url']) assert.equal(companies[0][field],stored[field]);
+ assert.equal(companyStatus(companies[0]).label,'Feed unavailable');
+});

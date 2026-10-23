@@ -1,5 +1,5 @@
 if(window.self!==window.top){document.body.replaceChildren(document.createTextNode('Open the review desk in its own tab.'));throw new Error('Framing is not supported.');}
-import {createApi} from './adapter.mjs?v=20261023-research1';
+import {createApi} from './adapter.mjs?v=20261023-research2';
 import {sourceInfo, matchesSource} from './sources.mjs?v=20261021-source1';
 import {mountCompanies} from './company-panel.mjs?v=20261023-research1';
 import {config} from './config.mjs';
